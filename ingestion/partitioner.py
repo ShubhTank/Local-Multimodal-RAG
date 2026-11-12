@@ -1,10 +1,8 @@
 """
 Partitions a PDF into typed elements using Unstructured.io.
 
-Returns a list of dicts with keys:
-  - type: str  (Title | NarrativeText | Table | Image)
-  - content: str | bytes
-  - metadata: dict  (page number, coordinates, source filename, uuid)
+Keeps all text-based elements so that resume sections such as
+skills, bullet points, projects, and experience are not lost.
 """
 
 import uuid
@@ -14,48 +12,73 @@ from typing import Any
 
 def partition_pdf(pdf_path: str) -> list[dict[str, Any]]:
     """
-    Partition a PDF file into typed elements.
+    Partition a PDF into typed elements.
 
-    Uses unstructured's hi_res strategy when available for accurate
-    table and image extraction. Falls back to fast strategy if
-    layout model is not installed.
+    Text-based Unstructured elements are preserved, including:
+    Title, NarrativeText, ListItem, Text, and other elements
+    containing textual content.
     """
+
     from unstructured.partition.pdf import partition_pdf as _partition
-    from unstructured.documents.elements import (
-        Title, NarrativeText, Table, Image
-    )
+
+    image_output_dir = Path("./doc_store/images")
+    image_output_dir.mkdir(parents=True, exist_ok=True)
 
     raw_elements = _partition(
         filename=pdf_path,
-        strategy="hi_res",          # Use "fast" if layout model unavailable
+        strategy="hi_res",
         extract_images_in_pdf=True,
-        extract_image_block_output_dir="./doc_store/images",
+        extract_image_block_output_dir=str(image_output_dir),
         infer_table_structure=True,
     )
 
-    results = []
-    type_map = {
-        Title: "Title",
-        NarrativeText: "NarrativeText",
-        Table: "Table",
-        Image: "Image",
-    }
+    results: list[dict[str, Any]] = []
 
     for el in raw_elements:
-        el_type = type_map.get(type(el))
-        if el_type is None:
-            continue
+        element_name = type(el).__name__
+        content = getattr(el, "text", "") or ""
 
-        results.append({
-            "uuid": str(uuid.uuid4()),
-            "type": el_type,
-            "content": getattr(el, "text", "") or "",
-            "metadata": {
-                "source": Path(pdf_path).name,
-                "page": getattr(el.metadata, "page_number", None),
-                "coordinates": getattr(el.metadata, "coordinates", None),
-                "image_path": getattr(el.metadata, "image_path", None),
-            },
-        })
+        metadata = getattr(el, "metadata", None)
+
+        # Keep text-based elements.
+        if content.strip():
+            results.append(
+                {
+                    "uuid": str(uuid.uuid4()),
+                    "type": element_name,
+                    "content": content,
+                    "metadata": {
+                        "source": Path(pdf_path).name,
+                        "page": getattr(
+                            metadata,
+                            "page_number",
+                            None,
+                        ),
+                    },
+                }
+            )
+
+        # Keep images even when they have no text.
+        elif element_name == "Image":
+            results.append(
+                {
+                    "uuid": str(uuid.uuid4()),
+                    "type": "Image",
+                    "content": "",
+                    "metadata": {
+                        "source": Path(pdf_path).name,
+                        "page": getattr(
+                            metadata,
+                            "page_number",
+                            None,
+                        ),
+                        "image_path": getattr(
+                            metadata,
+                            "image_path",
+                            None,
+                        ),
+                    },
+                }
+            )
 
     return results

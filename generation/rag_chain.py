@@ -1,94 +1,198 @@
+
 """
-Multimodal RAG generation chain.
+Generic document question-answering chain.
 
-Constructs a context-aware prompt that includes:
-  - retrieved text excerpts
-  - full HTML/Markdown for retrieved tables
-  - the actual chart image (base64) for retrieved figures
+Uses a local Ollama model to generate concise,
+grounded answers from retrieved document evidence.
 
-Passes the assembled prompt to the configured LLM.
+Supports different document types:
+- Resumes
+- Internship reports
+- Research papers
+- Technical documentation
+- Manuals
+- Business documents
 """
 
-import base64
 import os
-from pathlib import Path
 from typing import Any
 
-
-def _load_image_b64(image_path: str) -> str | None:
-    path = Path(image_path)
-    if not path.exists():
-        return None
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+from langchain_ollama import ChatOllama
 
 
-def generate_answer(question: str, context: list[dict[str, Any]]) -> str:
+def _prepare_context(
+    context: list[dict[str, Any]],
+) -> str:
     """
-    Build a multimodal prompt from retrieved context and call the LLM.
+    Prepare retrieved evidence for the LLM.
 
-    Text and table context is included as message text.
-    Image context is included as base64 image_url blocks (vision input).
+    Prioritizes descriptive content over isolated headings
+    and removes empty or irrelevant extraction artifacts.
     """
-    from openai import OpenAI
 
-    client = OpenAI()
-    model = os.getenv("LLM_MODEL", "gpt-4o")
-
-    text_parts: list[str] = []
-    image_blocks: list[dict] = []
+    evidence = []
 
     for item in context:
-        item_type = item.get("type", "NarrativeText")
-        content = item.get("content", "")
+        content = (
+            item.get("content", "") or ""
+        ).strip()
 
-        if item_type == "Image":
-            image_path = item.get("metadata", {}).get("image_path")
-            if image_path:
-                b64 = _load_image_b64(image_path)
-                if b64:
-                    ext = Path(image_path).suffix.lstrip(".") or "png"
-                    image_blocks.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/{ext};base64,{b64}"},
-                    })
-                    continue
-            # Fallback to vision summary if image not available
-            summary = item.get("vision_summary", content)
-            text_parts.append(f"[Figure]: {summary}")
+        if not content:
+            continue
 
-        elif item_type == "Table":
-            text_parts.append(f"[Table]:\n{content}")
+        # Remove extraction artifacts.
+        if content in {"|", "||", "|||", "and"}:
+            continue
 
-        else:
-            text_parts.append(content)
+        item_type = item.get("type", "Text")
 
-    system_prompt = (
-        "You are a precise document analysis assistant. "
-        "Answer the user's question using only the provided context — "
-        "text excerpts, tables, and chart images. "
-        "If the answer cannot be determined from the context, say so clearly. "
-        "Do not hallucinate."
+        priority = {
+            "NarrativeText": 0,
+            "ListItem": 1,
+            "Table": 2,
+            "Text": 3,
+            "Title": 4,
+            "Header": 5,
+            "Footer": 6,
+        }.get(item_type, 3)
+
+        evidence.append({
+            "type": item_type,
+            "content": content,
+            "priority": priority,
+            "length": len(content),
+        })
+
+    # Put descriptive content before isolated headings.
+    evidence.sort(
+        key=lambda x: (
+            x["priority"],
+            -x["length"],
+        )
     )
 
-    user_content: list[dict] = [
-        {
-            "type": "text",
-            "text": (
-                "Context:\n\n"
-                + "\n\n---\n\n".join(text_parts)
-                + f"\n\nQuestion: {question}"
-            ),
-        }
-    ] + image_blocks
+    parts = []
 
-    response = client.chat.completions.create(
+    for index, item in enumerate(evidence, start=1):
+        parts.append(
+            f"""
+EVIDENCE {index}
+TYPE: {item["type"]}
+CONTENT: {item["content"]}
+""".strip()
+        )
+
+    return "\n\n".join(parts)
+
+
+def generate_answer(
+    question: str,
+    context: list[dict[str, Any]],
+) -> str:
+    """
+    Generate a concise, document-grounded answer.
+    """
+
+    model = os.getenv(
+        "LLM_MODEL",
+        "qwen2.5:1.5b",
+    )
+
+    llm = ChatOllama(
         model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        max_tokens=1024,
+        temperature=0,
+        num_ctx=4096,
+        num_predict=150,
     )
 
-    return response.choices[0].message.content.strip()
+    context_text = _prepare_context(context)
+
+    if not context_text:
+        return (
+            "The information is not available "
+            "in the document."
+        )
+
+    system_prompt = """
+You are a concise document question-answering assistant.
+
+Your job is to answer the user's question using the
+information provided in the document evidence.
+
+STRICT RULES:
+
+1. Answer the exact question directly.
+2. Use only facts supported by the evidence.
+3. Write one clear, grammatically correct sentence.
+4. Include only information necessary to answer the question.
+5. Do not mention evidence numbers or context sections.
+6. Do not explain where the information was found.
+7. Do not describe your reasoning.
+8. Do not repeat the same information.
+9. Do not add unnecessary introductions or conclusions.
+10. Never invent or assume information.
+11. If the answer is unavailable, say:
+    "The information is not available in the document."
+
+OUTPUT FORMAT:
+
+Return ONLY the final answer.
+Prefer one short sentence.
+Do not include labels such as "Answer:".
+"""
+
+    user_prompt = f"""
+DOCUMENT EVIDENCE:
+
+{context_text}
+
+QUESTION:
+
+{question}
+
+Answer the question directly using the evidence.
+
+Return only one concise, complete sentence.
+Do not mention evidence numbers or explain your reasoning.
+
+FINAL ANSWER:
+"""
+
+    try:
+        response = llm.invoke(
+            [
+                ("system", system_prompt),
+                ("human", user_prompt),
+            ]
+        )
+
+        answer = (
+            response.content or ""
+        ).strip()
+
+        if not answer:
+            return (
+                "The information is not available "
+                "in the document."
+            )
+
+        # Remove common unnecessary answer prefixes.
+        prefixes = [
+            "Answer:",
+            "Final answer:",
+            "The answer is:",
+        ]
+
+        for prefix in prefixes:
+            if answer.lower().startswith(prefix.lower()):
+                answer = answer[len(prefix):].strip()
+
+        return answer
+
+    except Exception as error:
+        print(f"[rag_chain] Generation error: {error}")
+
+        return (
+            "Unable to generate an answer. "
+            "Please check whether Ollama is running."
+        )

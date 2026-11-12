@@ -5,9 +5,10 @@ Swap out the model by changing EMBED_MODEL in .env.
 """
 
 import os
-from langchain_openai import OpenAIEmbeddings
+
+from langchain_ollama import OllamaEmbeddings
 
 
-def get_embedder() -> OpenAIEmbeddings:
-    model = os.getenv("EMBED_MODEL", "text-embedding-3-small")
-    return OpenAIEmbeddings(model=model)
+def get_embedder() -> OllamaEmbeddings:
+    model = os.getenv("EMBED_MODEL", "nomic-embed-text")
+    return OllamaEmbeddings(model=model)

@@ -2,24 +2,42 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environments
 .venv/
 venv/
-*.egg-info/
+env/
+
+# Build artifacts
 dist/
 build/
+.eggs/
 
-# Environment
+# Environment / secrets
 .env
+*.env
 
-# Document store (generated at runtime)
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Local document storage
 doc_store/
 
 # Qdrant local storage
 qdrant_storage/
 
 # Evaluation outputs
-*.json
-!data/eval_dataset.json
+evaluation_results/
+*.eval.json
 
 # OS
 .DS_Store
@@ -28,3 +46,11 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Git
+.git/

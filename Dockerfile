@@ -3,7 +3,7 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# System deps needed to compile / install heavy packages
+# System dependencies required to build/install Python packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libmagic1 \
@@ -14,9 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies into a separate prefix so we can copy them cleanly
+# Install Python dependencies into a separate location
+# so they can be copied into the runtime image.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+RUN pip install \
+    --no-cache-dir \
+    --prefix=/install \
+    -r requirements.txt
 
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
@@ -24,7 +29,7 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Only the runtime system libraries (no build-essential, etc.)
+# Runtime system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     poppler-utils \
@@ -33,24 +38,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed Python packages from builder
+# Copy Python dependencies from builder
 COPY --from=builder /install /usr/local
 
 # Copy application source
 COPY . .
 
-# Create the default doc_store directory so bind-mounts work out of the box
+# Create directories used by the application
 RUN mkdir -p /app/doc_store /app/data
 
-# Non-root user for security
-RUN useradd --no-create-home --shell /bin/false appuser \
+# Create non-root application user
+RUN useradd \
+    --no-create-home \
+    --shell /usr/sbin/nologin \
+    appuser \
     && chown -R appuser:appuser /app
+
 USER appuser
 
-# Expose FastAPI port (if the API server is used)
+# FastAPI port
 EXPOSE 8000
 
-# Default: run the CLI. Override with docker run ... ingest/query/evaluate.
-# To start the API server instead, override CMD:
-#   docker run ... uvicorn api.server:app --host 0.0.0.0 --port 8000
+# Default CLI command
 CMD ["python", "main.py", "--help"]
