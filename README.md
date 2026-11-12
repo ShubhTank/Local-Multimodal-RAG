@@ -1,16 +1,3 @@
-from pathlib import Path
-import pypandoc
-
-readme = r"""# Multimodal RAG Pipeline
-
-> **Layout-aware document ingestion, multimodal processing, semantic retrieval, and grounded RAG generation** — designed for complex PDFs containing text, tables, images, and mixed content.
-
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
-![LangChain](https://img.shields.io/badge/LangChain-orchestration-green)
-![Qdrant](https://img.shields.io/badge/Qdrant-vector--store-red)
-![Ollama](https://img.shields.io/badge/Ollama-local--AI-black)
-![RAGAS](https://img.shields.io/badge/Evaluation-RAGAS-purple)
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ---
 
