@@ -585,3 +585,17 @@ This reduces dependence on paid external AI APIs.
 - [ ] Optional larger quantized models for improved answer quality
 
 ---
+
+## Attribution
+
+This project is based on the original Multimodal RAG project by CarlAmine.
+
+Original repository: https://github.com/CarlAmine/Multimodal-RAG
+
+The project has been modified and extended with a local-first architecture using Ollama, Qdrant, and locally hosted AI models.
+
+Original work is credited to its respective author. Additional modifications and contributions are maintained in this repository.
+
+## License
+
+This project retains the original MIT License. See [LICENSE](LICENSE) for details.
